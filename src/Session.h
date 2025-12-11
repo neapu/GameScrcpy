@@ -2,7 +2,11 @@
 #include <QObject>
 #include <QProcess>
 #include "network/Network.h"
-#include "view/DeviceWidget.h"
+#include "view/DeviceWindow.h"
+#include "codec/VideoDecoder.h"
+
+#include <QMutex>
+
 class Session : public QObject {
     Q_OBJECT
 public:
@@ -16,6 +20,8 @@ signals:
 
 private:
     void startScrcpyServer();
+
+    void onVideoFrameDecoded(codec::FramePtr&& frame) const;
 
 private slots:
     void onWindowClosed();
@@ -32,6 +38,8 @@ private slots:
 private:
     QString m_serial;
     network::Network* m_network{nullptr};
-    view::DeviceWidget* m_deviceWidget{nullptr};
+    view::DeviceWindow* m_deviceWindow{nullptr};
     QProcess* m_adbProcess{nullptr};
+    std::unique_ptr<codec::VideoDecoder> m_videoDecoder;
+    QMutex m_videoDecoderMutex;
 };

@@ -1,6 +1,6 @@
 set(EXE_NAME GameScrcpy)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Quick Widgets ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -10,6 +10,15 @@ qt_add_executable(${EXE_NAME}
         SessionManager.h
         Session.cpp
         Session.h
+)
+
+qt_add_shaders(${EXE_NAME} "shaders"
+    FILES
+    shaders/video.vert
+    shaders/none.frag
+    shaders/nv12.frag
+    shaders/p010.frag
+    shaders/yuv420p.frag
 )
 
 qt_add_resources(${EXE_NAME} "resources"
@@ -43,8 +52,9 @@ add_subdirectory(model)
 add_subdirectory(device)
 add_subdirectory(view)
 add_subdirectory(network)
+add_subdirectory(codec)
 
-target_link_libraries(${EXE_NAME} PRIVATE model device view network logger)
+target_link_libraries(${EXE_NAME} PRIVATE model device view network logger codec)
 
 # Windows平台下自动部署Qt依赖库
 if(WIN32)

@@ -13,6 +13,10 @@
 constexpr auto SCRCPY_SERVER_PATH = "/data/local/tmp/scrcpy-server.jar";
 constexpr auto SCRCPY_SERVER_VERSION = "3.3.3";
 
+constexpr auto VIDEO_CODEC_H264_ID = 0x68323634;
+constexpr auto VIDEO_CODEC_HEVC_ID = 0x68323635;
+constexpr auto VIDEO_CODEC_AV1_ID  = 0x00617631;
+
 static QString getScrcpyServerLocalPath()
 {
 #ifdef DEBUG_MODE
@@ -40,9 +44,9 @@ bool Session::open()
         return false;
     }
 
-    m_deviceWidget = new view::DeviceWidget();
-    connect(m_deviceWidget, &view::DeviceWidget::windowClosed, this, &Session::onWindowClosed, Qt::QueuedConnection);
-    m_deviceWidget->show();
+    m_deviceWindow = new view::DeviceWindow();
+    connect(m_deviceWindow, &view::DeviceWindow::windowClosed, this, &Session::onWindowClosed, Qt::QueuedConnection);
+    m_deviceWindow->show();
 
     const QString localServerPath = getScrcpyServerLocalPath();
     if (!QFile::exists(localServerPath)) {
@@ -86,7 +90,7 @@ void Session::startScrcpyServer()
     args << "tunnel_forward=false";
     args << "control=false";
     args << "video=true";
-    args << "audio=true";
+    args << "audio=false";
     args << "cleanup=true";
     m_adbProcess = device::AdbHelper::runBackgroundCommand(m_serial, args);
     if (!m_adbProcess) {
@@ -110,6 +114,10 @@ void Session::startScrcpyServer()
     m_adbProcess->start();
     LOGI("Started scrcpy server for device {}", m_serial.toStdString());
 }
+void Session::onVideoFrameDecoded(codec::FramePtr&& frame) const
+{
+    m_deviceWindow->renderFrame(std::move(frame));
+}
 void Session::onWindowClosed()
 {
     FUNC_TRACE;
@@ -121,40 +129,59 @@ void Session::onWindowClosed()
     }
 
     m_network->stop();
-    m_deviceWidget->deleteLater();
-    m_deviceWidget = nullptr;
+    m_deviceWindow->deleteLater();
+    m_deviceWindow = nullptr;
 
     emit sessionClosed(m_serial);
 }
 void Session::onReceivedDeviceName(const QString& deviceName)
 {
     qInfo() << "Connected to device:" << deviceName;
-    if (m_deviceWidget) {
-        m_deviceWidget->setWindowTitle(deviceName);
+    if (m_deviceWindow) {
+        m_deviceWindow->setWindowTitle(deviceName);
     }
 }
 void Session::onReceivedVideoMetaData(int codec, int width, int height)
 {
     LOGI("Received video metadata: codec={}, width={}, height={}", codec, width, height);
+    if (m_videoDecoder) {
+        return;
+    }
+
+    codec::VideoDecoder::CreateParam param;
+    param.width = width;
+    param.height = height;
+    if (codec == VIDEO_CODEC_H264_ID) {
+        param.codecType = codec::VideoDecoder::CodecType::h264;
+    } else if (codec == VIDEO_CODEC_HEVC_ID) {
+        param.codecType = codec::VideoDecoder::CodecType::hevc;
+    } else if (codec == VIDEO_CODEC_AV1_ID) {
+        param.codecType = codec::VideoDecoder::CodecType::av1;
+    } else {
+        LOGE("Unsupported video codec ID: {}", codec);
+        return;
+    }
+    param.frameCallback = std::bind(&Session::onVideoFrameDecoded, this, std::placeholders::_1);
+
+    {
+        QMutexLocker locker(&m_videoDecoderMutex);
+        m_videoDecoder = std::make_unique<codec::VideoDecoder>(param);
+    }
 }
 void Session::onReceivedVideoData(bool configFlag, bool keyFrameFlag, int64_t pts, const QByteArray& data)
 {
-    // DEBUG
-    LOGD("Received video data: pts={}, size={}", pts, data.size());
-    if (configFlag) {
-        LOGI("Is config frame");
+    // LOGI("Received video data: pts={}, size={}, config={}, keyFrame={}", pts, data.size(), configFlag, keyFrameFlag);
+    auto packet = codec::Packet::fromData(configFlag, keyFrameFlag, pts, reinterpret_cast<const uint8_t*>(data.constData()), data.size());
+    if (!packet) {
+        LOGE("Failed to create video packet");
+        return;
     }
-    if (keyFrameFlag) {
-        LOGI("Is key frame");
-    }
-    static QFile testFile("video_output.h264");
-    if (!testFile.isOpen()) {
-        if (!testFile.open(QIODevice::WriteOnly)) {
-            LOGE("Failed to open video output file");
-            return;
+    QThreadPool::globalInstance()->start([this, pkt = std::move(packet)]() mutable {
+        QMutexLocker locker(&m_videoDecoderMutex);
+        if (m_videoDecoder) {
+            m_videoDecoder->decode(pkt);
         }
-    }
-    testFile.write(data);
+    });
 }
 void Session::onReceivedAudioMetaData(int codecId)
 {
@@ -175,7 +202,7 @@ void Session::onReceivedAudioData(bool configFlag, bool keyFrameFlag, int64_t pt
 void Session::onAdbProcessError(QProcess::ProcessError error) const
 {
     qCritical() << "ADB process error:" << error;
-    if (m_deviceWidget) m_deviceWidget->close();
+    if (m_deviceWindow) m_deviceWindow->close();
 }
 void Session::onAdbProcessFinished(int exitCode, QProcess::ExitStatus exitStatus) const
 {
@@ -196,5 +223,5 @@ void Session::onAdbProcessFinished(int exitCode, QProcess::ExitStatus exitStatus
         LOGE("Failed to remove adb reverse for scrcpy: {}", ex.message().toStdString());
     });
 
-    if (m_deviceWidget) m_deviceWidget->close();
+    if (m_deviceWindow) m_deviceWindow->close();
 }

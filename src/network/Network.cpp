@@ -7,7 +7,21 @@
 #include <QTcpSocket>
 #include <QtEndian>
 
+#define PACKET_FLAG_CONFIG (UINT64_C(1) << 63)
+#define PACKET_FLAG_KEYFRAME (UINT64_C(1) << 62)
+#define PACKET_PTS_MASK (~(PACKET_FLAG_CONFIG | PACKET_FLAG_KEYFRAME))
+
 namespace network {
+static uint32_t read32be(const char* data)
+{
+    return qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(data));
+}
+
+static uint64_t read64be(const char* data)
+{
+    return qFromBigEndian<quint64>(reinterpret_cast<const uchar*>(data));
+}
+
 Network::Network(QObject* parent)
     : QObject(parent)
 {
@@ -154,6 +168,7 @@ void Network::onReadData()
 void Network::onVideoDataReceived()
 {
     m_videoBuffer += m_videoSocket->readAll();
+    // LOGD("Buffer Size: {}", m_videoBuffer.size());
     if (!m_deviceNameReceived) {
         // 读取设备名称，64字节utf-8编码，不足补0
         if (m_videoBuffer.size() < 64) {
@@ -174,9 +189,9 @@ void Network::onVideoDataReceived()
         if (m_videoBuffer.size() < 12) {
             return; // 数据不完整，继续等待
         }
-        int codec = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(m_videoBuffer.constData()));
-        int width = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(m_videoBuffer.constData() + 4));
-        int height = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(m_videoBuffer.constData() + 8));
+        const int codec = static_cast<int>(read32be(m_videoBuffer.constData()));
+        const int width = static_cast<int>(read32be(m_videoBuffer.constData() + 4));
+        const int height = static_cast<int>(read32be(m_videoBuffer.constData() + 8));
         m_videoBuffer.remove(0, 12);
         m_videoMetaDataReceived = true;
         emit receivedVideoMetaData(codec, width, height);
@@ -191,12 +206,12 @@ void Network::onVideoDataReceived()
         if (m_videoBuffer.size() < 12) {
             return; // 数据不完整，继续等待
         }
-        const bool configFlag = (m_videoBuffer[0] & 0x80) != 0;
-        const bool keyFrameFlag = (m_videoBuffer[0] & 0x40) != 0;
-        const uchar* p = reinterpret_cast<const uchar*>(m_videoBuffer.constData());
-        const quint64 header64 = qFromBigEndian<quint64>(p);
-        const qint64 pts = static_cast<qint64>(header64 & ((1ULL << 62) - 1));
-        int dataLength = qFromBigEndian<quint32>(p + 8);
+        const uint64_t pts_flags = read64be(m_videoBuffer.constData());
+        const uint32_t dataLength = read32be(m_videoBuffer.constData() + 8);
+        // LOGD("Data Length: {}", dataLength);
+        const bool configFlag = (pts_flags & PACKET_FLAG_CONFIG) != 0;
+        const bool keyFrameFlag = (pts_flags & PACKET_FLAG_KEYFRAME) != 0;
+        const int64_t pts = static_cast<int64_t>(pts_flags & PACKET_PTS_MASK);
         if (dataLength == 0) {
             LOGW("Received video frame with zero length, skipping");
             m_videoBuffer.remove(0, 12);
@@ -219,7 +234,7 @@ void Network::onAudioDataReceived()
         if (m_audioBuffer.size() < 4) {
             return; // 数据不完整，继续等待
         }
-        int codecId = qFromBigEndian<quint32>(m_audioBuffer.constData());
+        const int codecId = static_cast<int>(read32be(m_audioBuffer.constData()));
         m_audioBuffer.remove(0, 4);
         m_audioMetaDataReceived = true;
         emit receivedAudioMetaData(codecId);
@@ -234,12 +249,11 @@ void Network::onAudioDataReceived()
         if (m_audioBuffer.size() < 12) {
             return; // 数据不完整，继续等待
         }
-        const bool configFlag = (m_audioBuffer[0] & 0x80) != 0;
-        const bool keyFrameFlag = (m_audioBuffer[0] & 0x40) != 0;
-        const uchar* p = reinterpret_cast<const uchar*>(m_audioBuffer.constData());
-        const quint64 header64 = qFromBigEndian<quint64>(p);
-        const qint64 pts = static_cast<qint64>(header64 & ((1ULL << 62) - 1));
-        int dataLength = qFromBigEndian<quint32>(p + 8);
+        const uint64_t pts_flags = read64be(m_audioBuffer.constData());
+        const uint32_t dataLength = read32be(m_audioBuffer.constData() + 8);
+        const bool configFlag = (pts_flags & PACKET_FLAG_CONFIG) != 0;
+        const bool keyFrameFlag = (pts_flags & PACKET_FLAG_KEYFRAME) != 0;
+        const int64_t pts = static_cast<int64_t>(pts_flags & PACKET_PTS_MASK);
         if (dataLength == 0) {
             LOGW("Received audio frame with zero length, skipping");
             m_audioBuffer.remove(0, 12);

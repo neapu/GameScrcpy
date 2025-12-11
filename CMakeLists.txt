@@ -19,4 +19,5 @@ endif ()
 
 add_subdirectory(first_party/logger)
 include_directories(first_party/logger)
+add_subdirectory(third_party/proxy)
 add_subdirectory(src)
