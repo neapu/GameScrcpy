@@ -6,6 +6,7 @@
 #include "logger.h"
 #include "EmptySrb.h"
 #include "YuvTexturesSrb.h"
+#include "VaapiTexturesSrb.h"
 
 #include <QFile>
 
@@ -69,21 +70,22 @@ void VideoRenderer::render(QRhiCommandBuffer* cb)
     }
 
     QMutexLocker locker(&m_frameMutex);
+    if (!m_currentFrame) {
+        locker.unlock();
+        cb->beginPass(renderTarget(), QColor(0, 0, 0, 255), {1.0f, 0}, nullptr);
+        cb->endPass();
+        return;
+    }
 
     auto rub = m_rhi->nextResourceUpdateBatch();
     QSize renderSize = renderTarget()->pixelSize();
 
-    if (!m_currentFrame && m_oldPixelFormat != codec::Frame::PixelFormat::None) {
-        m_oldPixelFormat = codec::Frame::PixelFormat::None;
-        m_oldWidth = 0;
-        m_oldHeight = 0;
-        m_textureSrbProxy = pro::make_proxy<TextureSrb, EmptySrb>(m_rhi);
-        if (!createPipeline()) {
-            LOGE("Failed to create graphics pipeline for empty frame");
-            rub->release();
-            return;
-        }
-    } else if (m_currentFrame &&
+    // if (m_currentFrame->pixelFormat() != codec::Frame::PixelFormat::Vaapi) {
+    //     qFatal() << "当前仅测试vaapi模式, 当前帧格式为：" << static_cast<int>(m_currentFrame->rawPixelFormat());
+    //     return;
+    // }
+
+    if (m_currentFrame &&
         (m_currentFrame->pixelFormat() != m_oldPixelFormat ||
         m_currentFrame->width() != m_oldWidth ||
         m_currentFrame->height() != m_oldHeight)) {
@@ -92,7 +94,15 @@ void VideoRenderer::render(QRhiCommandBuffer* cb)
         m_oldHeight = m_currentFrame->height();
         m_uniforms->updateColorParamsUniforms(rub, m_currentFrame->colorSpace(), m_currentFrame->colorRange());
 
-        m_textureSrbProxy = pro::make_proxy<TextureSrb, YuvTexturesSrb>(m_rhi, m_currentFrame->width(), m_currentFrame->height(), m_uniforms.get());
+        using enum codec::Frame::PixelFormat;
+        if (m_currentFrame->pixelFormat() == YUV420P) {
+            m_textureSrbProxy = pro::make_proxy<TextureSrb, YuvTexturesSrb>(m_rhi, m_uniforms.get(), m_currentFrame);
+        } else if (m_currentFrame->pixelFormat() == Vaapi) {
+            m_textureSrbProxy = pro::make_proxy<TextureSrb, VaapiTexturesSrb>(m_rhi, m_uniforms.get(), m_currentFrame);
+        } else {
+            LOGE("Unsupported frame pixel format: {}", m_currentFrame->rawPixelFormat());
+            m_textureSrbProxy = pro::make_proxy<TextureSrb, EmptySrb>(m_rhi);
+        }
         if (!createPipeline()) {
             LOGE("Failed to create graphics pipeline for new frame format");
             rub->release();
@@ -100,10 +110,7 @@ void VideoRenderer::render(QRhiCommandBuffer* cb)
         }
     }
 
-    if (m_currentFrame) {
-        m_uniforms->updateVsUniforms(rub, renderSize, QSize(m_currentFrame->width(), m_currentFrame->height()));
-    }
-
+    m_uniforms->updateVsUniforms(rub, renderSize, QSize(m_currentFrame->width(), m_currentFrame->height()));
     m_textureSrbProxy->updateTexture(rub, m_currentFrame);
     locker.unlock();
 

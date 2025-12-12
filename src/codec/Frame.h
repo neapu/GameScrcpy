@@ -35,6 +35,7 @@ public:
         VideoToolbox,
     };
     PixelFormat pixelFormat() const;
+    int rawPixelFormat() const;
 
     enum class ColorSpace {
         BT601, // Default to BT601
@@ -47,6 +48,11 @@ public:
         Full,
     };
     ColorRange colorRange() const;
+
+#ifdef __linux__
+    unsigned int vaSurfaceId() const;
+    void* vaDisplay() const;
+#endif
 
 private:
     AVFrame* m_avFrame{nullptr};

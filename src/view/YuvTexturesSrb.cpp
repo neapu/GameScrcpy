@@ -7,10 +7,10 @@
 #include "logger.h"
 
 namespace view {
-YuvTexturesSrb::YuvTexturesSrb(QRhi* rhi, int width, int height, Uniforms* uniforms)
+YuvTexturesSrb::YuvTexturesSrb(QRhi* rhi, Uniforms* uniforms, const codec::FramePtr& frame)
     : m_rhi(rhi)
-    , m_width(width)
-    , m_height(height)
+    , m_width(frame->width())
+    , m_height(frame->height())
 {
     FUNC_TRACE;
     m_yTexture.reset(m_rhi->newTexture(QRhiTexture::R8, QSize(m_width, m_height), 1, QRhiTexture::Flags()));

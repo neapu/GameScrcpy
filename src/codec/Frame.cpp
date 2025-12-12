@@ -6,7 +6,13 @@
 #include <stdexcept>
 extern "C"{
 #include <libavutil/frame.h>
+#include <libavutil/pixfmt.h>
+#include <libavutil/hwcontext.h>
 }
+
+#ifdef __linux__
+#include <libavutil/hwcontext_vaapi.h>
+#endif
 
 namespace codec {
 Frame::Frame()
@@ -68,6 +74,11 @@ Frame::PixelFormat Frame::pixelFormat() const
     default: return PixelFormat::None;
     }
 }
+int Frame::rawPixelFormat() const
+{
+    if (!m_avFrame) return -1;
+    return m_avFrame->format;
+}
 Frame::ColorSpace Frame::colorSpace() const
 {
     if (!m_avFrame) return ColorSpace::BT601;
@@ -83,5 +94,22 @@ Frame::ColorRange Frame::colorRange() const
     case AVCOL_RANGE_JPEG: return ColorRange::Full;
     default: return ColorRange::Limited;
     }
+}
+unsigned int Frame::vaSurfaceId() const
+{
+    return static_cast<unsigned int>(reinterpret_cast<uintptr_t>(m_avFrame->data[3]));
+}
+void* Frame::vaDisplay() const
+{
+    if (!m_avFrame || !m_avFrame->hw_frames_ctx) return nullptr;
+
+    const auto* hwFramesCtx = reinterpret_cast<AVHWFramesContext*>(m_avFrame->hw_frames_ctx->data);
+    if (!hwFramesCtx) return nullptr;
+    const auto* hwDeviceCtx = hwFramesCtx->device_ctx;
+    if (!hwDeviceCtx) return nullptr;
+    if (hwDeviceCtx->type != AV_HWDEVICE_TYPE_VAAPI) return nullptr;
+
+    const auto* vaDevCtx = static_cast<AVVAAPIDeviceContext*>(hwDeviceCtx->hwctx);
+    return vaDevCtx->display;
 }
 } // namespace codec

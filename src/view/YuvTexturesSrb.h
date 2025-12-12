@@ -11,7 +11,7 @@
 namespace view {
 class YuvTexturesSrb {
 public:
-    YuvTexturesSrb(QRhi* rhi, int width, int height, Uniforms* uniforms);
+    YuvTexturesSrb(QRhi* rhi, Uniforms* uniforms, const codec::FramePtr& frame);
     ~YuvTexturesSrb();
 
     QRhiShaderResourceBindings* getSrb() const { return m_srb.get(); }

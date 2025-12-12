@@ -92,6 +92,8 @@ void Session::startScrcpyServer()
     args << "video=true";
     args << "audio=false";
     args << "cleanup=true";
+    args << "video_bit_rate=8000000";
+    args << "video_codec=h264";
     m_adbProcess = device::AdbHelper::runBackgroundCommand(m_serial, args);
     if (!m_adbProcess) {
         LOGE("Failed to start scrcpy server for device {}", m_serial.toStdString());
@@ -116,7 +118,10 @@ void Session::startScrcpyServer()
 }
 void Session::onVideoFrameDecoded(codec::FramePtr&& frame) const
 {
-    m_deviceWindow->renderFrame(std::move(frame));
+    if (!m_deviceWindow) return;
+    QMetaObject::invokeMethod(m_deviceWindow, [dw = m_deviceWindow, f = std::move(frame)]() mutable {
+        dw->renderFrame(std::move(f));
+    }, Qt::QueuedConnection);
 }
 void Session::onWindowClosed()
 {
@@ -126,6 +131,11 @@ void Session::onWindowClosed()
         m_adbProcess->waitForFinished(3000);
         m_adbProcess->deleteLater();
         m_adbProcess = nullptr;
+    }
+
+    {
+        QMutexLocker locker(&m_videoDecoderMutex);
+        m_videoDecoder.reset();
     }
 
     m_network->stop();
@@ -162,6 +172,7 @@ void Session::onReceivedVideoMetaData(int codec, int width, int height)
         return;
     }
     param.frameCallback = std::bind(&Session::onVideoFrameDecoded, this, std::placeholders::_1);
+    param.swDecode = false;
 
     {
         QMutexLocker locker(&m_videoDecoderMutex);
@@ -170,18 +181,15 @@ void Session::onReceivedVideoMetaData(int codec, int width, int height)
 }
 void Session::onReceivedVideoData(bool configFlag, bool keyFrameFlag, int64_t pts, const QByteArray& data)
 {
-    // LOGI("Received video data: pts={}, size={}, config={}, keyFrame={}", pts, data.size(), configFlag, keyFrameFlag);
     auto packet = codec::Packet::fromData(configFlag, keyFrameFlag, pts, reinterpret_cast<const uint8_t*>(data.constData()), data.size());
     if (!packet) {
         LOGE("Failed to create video packet");
         return;
     }
-    QThreadPool::globalInstance()->start([this, pkt = std::move(packet)]() mutable {
-        QMutexLocker locker(&m_videoDecoderMutex);
-        if (m_videoDecoder) {
-            m_videoDecoder->decode(pkt);
-        }
-    });
+    QMutexLocker locker(&m_videoDecoderMutex);
+    if (m_videoDecoder) {
+        m_videoDecoder->decode(std::move(packet));
+    }
 }
 void Session::onReceivedAudioMetaData(int codecId)
 {
