@@ -95,6 +95,7 @@ Frame::ColorRange Frame::colorRange() const
     default: return ColorRange::Limited;
     }
 }
+#ifdef __linux__
 unsigned int Frame::vaSurfaceId() const
 {
     return static_cast<unsigned int>(reinterpret_cast<uintptr_t>(m_avFrame->data[3]));
@@ -112,4 +113,5 @@ void* Frame::vaDisplay() const
     const auto* vaDevCtx = static_cast<AVVAAPIDeviceContext*>(hwDeviceCtx->hwctx);
     return vaDevCtx->display;
 }
+#endif
 } // namespace codec

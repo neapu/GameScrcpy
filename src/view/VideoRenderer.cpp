@@ -97,8 +97,10 @@ void VideoRenderer::render(QRhiCommandBuffer* cb)
         using enum codec::Frame::PixelFormat;
         if (m_currentFrame->pixelFormat() == YUV420P) {
             m_textureSrbProxy = pro::make_proxy<TextureSrb, YuvTexturesSrb>(m_rhi, m_uniforms.get(), m_currentFrame);
+#ifdef __linux__
         } else if (m_currentFrame->pixelFormat() == Vaapi) {
             m_textureSrbProxy = pro::make_proxy<TextureSrb, VaapiTexturesSrb>(m_rhi, m_uniforms.get(), m_currentFrame);
+#endif
         } else {
             LOGE("Unsupported frame pixel format: {}", m_currentFrame->rawPixelFormat());
             m_textureSrbProxy = pro::make_proxy<TextureSrb, EmptySrb>(m_rhi);

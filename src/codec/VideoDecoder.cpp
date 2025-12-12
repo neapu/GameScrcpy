@@ -105,6 +105,7 @@ void VideoDecoder::initHwContext()
 #ifdef __linux__
     auto deviceType = AV_HWDEVICE_TYPE_VAAPI;
 #else
+    auto deviceType = AV_HWDEVICE_TYPE_NONE;
     return;
 #endif
 

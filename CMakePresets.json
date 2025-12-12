@@ -12,9 +12,22 @@
             "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}/lib/cmake",
             "FFMPEG_DIR": "$env{FFMPEG_DIR}"
         }
+    },{
+        "name": "Win32-Debug",
+        "displayName": "Win32 Debug",
+        "generator": "Visual Studio 17 2022",
+        "binaryDir": "${sourceDir}/build/${presetName}",
+        "cacheVariables": {
+            "CMAKE_BUILD_TYPE": "Debug",
+            "CMAKE_PREFIX_PATH": "$env{Qt6_DIR}/lib/cmake",
+            "FFMPEG_DIR": "$env{FFMPEG_DIR}"
+        }
     }],
     "buildPresets": [{
         "name": "Linux-Debug",
         "configurePreset": "Linux-Debug"
+    },{
+        "name": "Win32-Debug",
+        "configurePreset": "Win32-Debug"
     }]
 }

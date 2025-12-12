@@ -69,6 +69,7 @@ if(WIN32)
                 COMMAND ${CMAKE_COMMAND} -E echo "Deploying Qt libraries..."
                 COMMAND ${WINDEPLOYQT_EXECUTABLE}
                 --$<LOWER_CASE:$<CONFIG>>
+                --qmldir "${CMAKE_SOURCE_DIR}/src/view/qml"
                 --no-translations
                 --no-system-d3d-compiler
                 --no-opengl-sw
